@@ -61,6 +61,8 @@ abstract contract Base is Test {
 
     uint256 internal constant PER_TX = 10_000e6;
     uint256 internal constant DAILY = 30_000e6;
+    uint256 internal constant NATIVE_PER_TX = 1 ether;
+    uint256 internal constant NATIVE_DAILY = 5 ether;
 
     address internal account;
 
@@ -91,7 +93,9 @@ abstract contract Base is Test {
             address(recovery),
             address(twdc),
             uint128(PER_TX),
-            uint128(DAILY)
+            uint128(DAILY),
+            uint128(NATIVE_PER_TX),
+            uint128(NATIVE_DAILY)
         );
 
         vm.startPrank(gov);

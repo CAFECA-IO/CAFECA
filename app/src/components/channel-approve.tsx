@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hashMessage, type Hex } from "viem";
+import { formatEther, hashMessage, type Hex } from "viem";
 import { DEPLOYMENT, Req } from "@/lib/config";
 import { preview, type Preview } from "@/lib/client";
 import { runOp } from "@/lib/actions";
@@ -221,11 +221,25 @@ async function analyze(req: ChannelRequest, account: `0x${string}`): Promise<Ana
   const warnings: string[] = [];
   let blocked: string | undefined;
   if (pv.summaries.some((s) => !ALLOWED_SUMMARY_KINDS.includes(s.kind))) blocked = "這筆操作包含網站不允許要求的項目（例如變更金鑰或通道），錢包已封鎖。";
-  if (pv.req === Req.REJECT) blocked ??= "這筆操作目前不被允許：可能超過單筆或每日額度。";
+  if (pv.req === Req.REJECT) blocked ??= await rejectReason(execs.reduce((t, e) => t + e.value, 0n));
   if (pv.summaries.some((s) => s.kind === 2)) warnings.push("包含代幣授權：對方之後可以不經你確認就動用授權的額度。");
   if (pv.summaries.some((s) => s.kind === 0)) warnings.push("包含錢包無法解讀的合約呼叫，請確認你信任這個網站。");
   if (execs.some((e) => e.value > 0n)) warnings.push("這筆操作會轉出 BOLT。");
   return { callData, preview: pv, warnings, blocked };
+}
+
+/** 被合約拒絕的原因：轉出 BOLT 而帳戶還沒有 BOLT 額度時，指引到錢包開啟 */
+async function rejectReason(value: bigint): Promise<string> {
+  if (value > 0n) {
+    const n = await fetch("/api/limits/native").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (n && !n.enabled) return "你的帳戶還沒有開啟 BOLT 轉帳額度，所以不能轉出 BOLT。請到「錢包」開啟 BOLT 轉帳後再回到網站重試。";
+    if (n) {
+      const left = BigInt(n.daily) - BigInt(n.spent);
+      if (value > BigInt(n.perTx)) return `這筆要轉出 ${formatEther(value)} BOLT，超過單筆上限 ${formatEther(BigInt(n.perTx))} BOLT。`;
+      if (value > left) return `這筆要轉出 ${formatEther(value)} BOLT，超過今天剩餘的 BOLT 額度 ${formatEther(left > 0n ? left : 0n)} BOLT。`;
+    }
+  }
+  return "這筆操作目前不被允許：可能超過單筆或每日額度。";
 }
 
 async function deliver(rec: ChannelRecord, box: Box, mode: "popup" | "relay") {

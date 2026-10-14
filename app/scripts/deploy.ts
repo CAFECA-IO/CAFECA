@@ -38,6 +38,12 @@ import { parseAbiItem } from "viem";
 import { p256 } from "@noble/curves/p256";
 import { sha256 } from "@noble/hashes/sha256";
 
+/** 新帳戶預設的 BOLT（原生幣）額度：開戶即可轉帳 BOLT（與 server/native-limits.ts 一致） */
+function native(env: Record<string, string>) {
+  const v = (k: string, d: string) => parseEther(process.env[k] ?? env[k] ?? d);
+  return [v("NATIVE_DEFAULT_PER_TX", "10"), v("NATIVE_DEFAULT_DAILY", "50")] as const;
+}
+
 const ROOT = process.cwd();
 const ENV_FILE = path.join(ROOT, ".env.local");
 // 預設寫入本機專用、不進 git 的 .local.json；加 --publish 才更新 git 追蹤的共用部署檔
@@ -168,6 +174,7 @@ async function main() {
       d.twdc,
       parseUnits("10000", 6),
       parseUnits("30000", 6),
+      ...native(env),
     ]);
     writeFileSync(OUT_FILE, JSON.stringify({ ...d, factory }, null, 2) + "\n");
     console.log(`完成 ✓ 舊工廠 ${d.factory} → 新工廠 ${factory}`);
@@ -229,7 +236,7 @@ async function main() {
   /** 法人帳戶：MemberValidator（成員簽署、額度只能由管理者調整）＋工廠；預設額度 單筆 5 萬／每日 20 萬 TWDC */
   async function deployEntity(accountImpl: Address, identityRegistry: Address, twdc: Address) {
     const memberValidator = await deploy("MemberValidator", [identityRegistry, deployer.address]);
-    const entityFactory = await deploy("EntityAccountFactory", [accountImpl, memberValidator, twdc, parseUnits("50000", 6), parseUnits("200000", 6)]);
+    const entityFactory = await deploy("EntityAccountFactory", [accountImpl, memberValidator, twdc, parseUnits("50000", 6), parseUnits("200000", 6), ...native(env)]);
     return { memberValidator, entityFactory };
   }
 
@@ -313,6 +320,7 @@ async function main() {
     twdc,
     parseUnits("10000", 6),
     parseUnits("30000", 6),
+    ...native(env),
   ]);
   const identityRegistry = await deploy("IdentityRegistry", [deployer.address]);
 

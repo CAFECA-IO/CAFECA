@@ -278,14 +278,21 @@ contract MemberValidator is IValidator {
         } catch {
             return (false, Role.NONE, tokens, amounts, 0);
         }
-        tokens = new address[](execs.length);
-        amounts = new uint256[](execs.length);
+        // 每筆最多計入兩種：原生幣 value 與代幣金額
+        tokens = new address[](execs.length * 2);
+        amounts = new uint256[](execs.length * 2);
         need = Role.OPERATOR;
         allowed = true;
         for (uint256 i = 0; i < execs.length; i++) {
             Execution memory e = execs[i];
             bytes4 sel = e.callData.length >= 4 ? bytes4(e.callData) : bytes4(0);
-            if (e.value > 0 || e.target == entity) return (false, need, tokens, amounts, 0);
+            if (e.target == entity) return (false, need, tokens, amounts, 0);
+            if (e.value > 0) {
+                // 原生幣（BOLT）以 token = address(0) 計入額度；沒有設定原生幣額度就不能轉出
+                if (e.target == address(this) || limits[address(0)][entity].daily == 0) return (false, need, tokens, amounts, 0);
+                n = _addSpend(tokens, amounts, n, address(0), e.value);
+                if (e.callData.length == 0) continue; // 單純轉 BOLT：經辦即可
+            }
             if (e.target == address(this)) {
                 // 只允許 setMember，且必須是 ADMIN
                 if (sel != this.setMember.selector) return (false, need, tokens, amounts, 0);
@@ -304,24 +311,25 @@ contract MemberValidator is IValidator {
                 bytes memory a = ExecLib.args(e.callData);
                 if (sel == TRANSFER_FROM) (,, amt) = abi.decode(a, (address, address, uint256));
                 else (, amt) = abi.decode(a, (address, uint256));
-                // 同一代幣合併計算
-                bool merged;
-                for (uint256 j = 0; j < n; j++) {
-                    if (tokens[j] == e.target) {
-                        amounts[j] += amt;
-                        merged = true;
-                        break;
-                    }
-                }
-                if (!merged) {
-                    tokens[n] = e.target;
-                    amounts[n++] = amt;
-                }
+                n = _addSpend(tokens, amounts, n, e.target, amt);
             } else {
                 // 其他合約呼叫（含受額度管理代幣的其他函式）只有 ADMIN 能做
                 need = Role.ADMIN;
             }
         }
+    }
+
+    /// @dev 同一代幣合併計算
+    function _addSpend(address[] memory tokens, uint256[] memory amounts, uint256 n, address token, uint256 amt) internal pure returns (uint256) {
+        for (uint256 j = 0; j < n; j++) {
+            if (tokens[j] == token) {
+                amounts[j] += amt;
+                return n;
+            }
+        }
+        tokens[n] = token;
+        amounts[n] = amt;
+        return n + 1;
     }
 
     /// @dev 供 try/catch 解碼（外部呼叫才能攔截解碼錯誤）

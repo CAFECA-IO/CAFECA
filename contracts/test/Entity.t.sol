@@ -26,7 +26,7 @@ contract EntityTest is Base {
     function setUp() public override {
         super.setUp();
         mv = new MemberValidator(address(att), gov);
-        ef = new EntityAccountFactory(address(impl), address(mv), address(twdc), 50_000e6, 200_000e6);
+        ef = new EntityAccountFactory(address(impl), address(mv), address(twdc), 50_000e6, 200_000e6, 1 ether, 5 ether);
         rep = _person(REP);
         clerk = _person(CLERK);
         outsider = _person(OUTSIDER);
@@ -207,6 +207,26 @@ contract EntityTest is Base {
         _handleExpectFail(op); // 合計 60,000 > 單筆 50,000
     }
 
+    function test_NativeTransferWithinDefaultLimits() public {
+        (uint128 perTx, uint128 daily) = mv.limits(address(0), entity);
+        assertEq(perTx, 1 ether);
+        assertEq(daily, 5 ether);
+        _handle(_setMemberOp(clerk, MemberValidator.Role.OPERATOR, rep, REP));
+        // 未驗證的法人不能動用資金
+        PackedUserOperation memory op = _op(entity, address(mv), _exec(vendor, 0.5 ether, ""));
+        _signEntity(op, clerk, CLERK);
+        _handleExpectFail(op);
+        _verifyEntity();
+        op = _op(entity, address(mv), _exec(vendor, 0.5 ether, ""));
+        _signEntity(op, clerk, CLERK);
+        _handle(op);
+        assertEq(vendor.balance, 0.5 ether);
+        // 附帶 BOLT 的一般合約呼叫：只有 ADMIN
+        op = _op(entity, address(mv), _exec(address(factory), 0.1 ether, abi.encodeCall(factory.rootKeyId, (bytes32(0), bytes32(0)))));
+        _signEntity(op, clerk, CLERK);
+        _handleExpectFail(op);
+    }
+
     function test_ForbiddenCalls() public {
         _verifyEntity();
         // 對法人帳戶本身（安裝模組）
@@ -217,8 +237,8 @@ contract EntityTest is Base {
         );
         _signEntity(op, rep, REP);
         _handleExpectFail(op);
-        // 轉原生幣
-        op = _op(entity, address(mv), _exec(vendor, 1 ether, ""));
+        // 轉原生幣超過單筆額度
+        op = _op(entity, address(mv), _exec(vendor, 2 ether, ""));
         _signEntity(op, rep, REP);
         _handleExpectFail(op);
         // OPERATOR 呼叫一般合約

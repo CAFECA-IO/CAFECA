@@ -10,8 +10,9 @@ import { HttpError } from "./session";
 /**
  * BOLT（原生幣）轉帳額度。
  *
- * 工廠只在開戶時設定 TWDC 額度，原生幣額度是 0，所以任何 BOLT 轉出都會被判定超額（沒有卡片就拒絕）。
- * 這裡提供「啟用平台預設 BOLT 額度」：
+ * 新版工廠（IdentityAccountFactory／EntityAccountFactory 帶 nativePerTx／nativeDaily）開戶時就設好平台預設
+ * BOLT 額度，開戶即可轉帳 BOLT。舊工廠建立的帳戶原生幣額度是 0，任何 BOLT 轉出都會被判定超額（沒有卡片就拒絕），
+ * 這裡提供「啟用平台預設 BOLT 額度」補上：
  *   - KeyringValidator v2：由 limitAdmin（營運錢包／多簽）以 setLimitsFor 設定，原因碼 5
  *   - v1（目前的測試網）：只能由帳戶自己設定；bundler 只放行「從 0 設為平台預設值」這一種，
  *     合約仍要求實體卡確認，或排程 72 小時後生效

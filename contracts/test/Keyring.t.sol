@@ -68,6 +68,42 @@ contract KeyringTest is Base {
         assertEq(twdc.balanceOf(bob), 1_000e6);
     }
 
+    // ── 原生幣（BOLT）：開戶即有預設額度 ──
+
+    function test_Native_DefaultLimitsAllowDailyTransfer() public {
+        (uint128 perTx, uint128 daily) = keyring.limits(address(0), account);
+        assertEq(perTx, NATIVE_PER_TX);
+        assertEq(daily, NATIVE_DAILY);
+        PackedUserOperation memory op = _op(account, address(keyring), _exec(bob, 0.5 ether, ""));
+        _signDaily(op, PHONE);
+        _handle(op);
+        assertEq(bob.balance, 0.5 ether);
+    }
+
+    function test_Native_ValueWithContractCallWithinLimit() public {
+        // 網站合約呼叫附帶 BOLT（例如付費建立存證）：在額度內用手機即可
+        NativeSink sink = new NativeSink();
+        PackedUserOperation memory op = _op(account, address(keyring), _exec(address(sink), 0.75 ether, abi.encodeCall(NativeSink.pay, (42))));
+        _signDaily(op, PHONE);
+        _handle(op);
+        assertEq(address(sink).balance, 0.75 ether);
+    }
+
+    function test_Native_OverLimitRejectedWithoutCard() public {
+        PackedUserOperation memory op = _op(account, address(keyring), _exec(bob, NATIVE_PER_TX + 1, ""));
+        _signDaily(op, PHONE);
+        _handleExpectFail(op);
+        // 每日累計
+        for (uint256 i = 0; i < 5; i++) {
+            op = _op(account, address(keyring), _exec(bob, 1 ether, ""));
+            _signDaily(op, PHONE);
+            _handle(op);
+        }
+        op = _op(account, address(keyring), _exec(bob, 0.1 ether, ""));
+        _signDaily(op, PHONE);
+        _handleExpectFail(op);
+    }
+
     function test_Standard_OverPerTxRejected() public {
         PackedUserOperation memory op = _transferOp(PER_TX + 1);
         _signDaily(op, PHONE);
@@ -376,5 +412,13 @@ contract KeyringTest is Base {
         PackedUserOperation memory op = _transferOp(1e6);
         _signDaily(op, ATTACKER);
         _handleExpectFail(op);
+    }
+}
+
+contract NativeSink {
+    uint256 public last;
+
+    function pay(uint256 x) external payable {
+        last = x;
     }
 }

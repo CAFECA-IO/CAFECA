@@ -20,6 +20,9 @@ contract IdentityAccountFactory {
     address public immutable defaultToken;
     uint128 public immutable defaultPerTx;
     uint128 public immutable defaultDaily;
+    /// @notice 原生幣（BOLT）預設額度：開戶即可轉出 BOLT（token = address(0)）
+    uint128 public immutable nativePerTx;
+    uint128 public immutable nativeDaily;
 
     event AccountCreated(address indexed account, bytes32 indexed rootKeyId);
 
@@ -29,7 +32,9 @@ contract IdentityAccountFactory {
         address recovery_,
         address defaultToken_,
         uint128 defaultPerTx_,
-        uint128 defaultDaily_
+        uint128 defaultDaily_,
+        uint128 nativePerTx_,
+        uint128 nativeDaily_
     ) {
         accountImpl = accountImpl_;
         keyring = keyring_;
@@ -37,6 +42,8 @@ contract IdentityAccountFactory {
         defaultToken = defaultToken_;
         defaultPerTx = defaultPerTx_;
         defaultDaily = defaultDaily_;
+        nativePerTx = nativePerTx_;
+        nativeDaily = nativeDaily_;
     }
 
     /// @notice 身分根金鑰 ID（與 KeyringValidator.keyIdOf 相同）
@@ -59,8 +66,10 @@ contract IdentityAccountFactory {
         validators[0] = keyring;
         validators[1] = recovery;
 
-        KeyringValidator.LimitInit[] memory lims = new KeyringValidator.LimitInit[](1);
+        bool native = nativeDaily > 0;
+        KeyringValidator.LimitInit[] memory lims = new KeyringValidator.LimitInit[](native ? 2 : 1);
         lims[0] = KeyringValidator.LimitInit(defaultToken, defaultPerTx, defaultDaily);
+        if (native) lims[1] = KeyringValidator.LimitInit(address(0), nativePerTx, nativeDaily);
         bytes[] memory vdata = new bytes[](2);
         vdata[0] = abi.encode(KeyringValidator.KeyInit(qx, qy, rpIdHash), lims);
         vdata[1] = "";
