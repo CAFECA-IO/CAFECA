@@ -6,6 +6,7 @@
 | --- | --- |
 | [`contracts/`](contracts) | Solidity 合約（Foundry）：帳戶、工廠、Keyring／Recovery／Channel 模組、Paymaster、登記合約 |
 | [`app/`](app) | Next.js 16 原型：錢包、卡片、AI 代理、聊天、安全與恢復，部署於 Boltchain 測試網 |
+| [`docs/`](docs) | 文件：[API 說明](docs/README.md)（對外公開、錢包、管理後台、排程與維運） |
 
 快速開始請見各目錄的 README。
 
