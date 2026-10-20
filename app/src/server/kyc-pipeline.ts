@@ -30,6 +30,8 @@ export const PROTOTYPE_AUTO_APPROVE = process.env.KYC_PROTOTYPE_AUTO_APPROVE ===
 const AUTO_APPROVE = process.env.KYC_AUTO_APPROVE === "1";
 /** 自動通過的人臉相似度門檻（高於 SFace 的同一人門檻，留安全邊際） */
 const AUTO_FACE = Number(process.env.KYC_AUTO_FACE ?? 0.45);
+/** 念數字只差一碼時，若其餘活體與人臉比對都通過即接受（KYC_SPEECH_PARTIAL_OK=0 可關閉） */
+const SPEECH_PARTIAL_OK = process.env.KYC_SPEECH_PARTIAL_OK !== "0";
 /** 低於此值視為明確不是同一人 */
 const REJECT_FACE = 0.15;
 
@@ -37,10 +39,21 @@ export function caseDir(account: string, id: string) {
   return path.join(process.cwd(), "data", "kyc", account.toLowerCase(), id);
 }
 
-type CaseFile = KycCase & { code?: string; challengeActions?: string[]; embeddings?: { id?: number[]; video?: number[] } };
+type OcrDump = { text: string; score: number; box: number[] }[];
+type CaseFile = KycCase & { code?: string; challengeActions?: string[]; embeddings?: { id?: number[]; video?: number[] }; ocr?: { front: OcrDump; back: OcrDump; zoom?: OcrDump } };
+
+/** 複核後台讀取 OCR 診斷資料 */
+export async function readOcr(account: string, id: string) {
+  return (await readCaseFile(account, id)).ocr ?? null;
+}
 
 async function readCaseFile(account: string, id: string): Promise<CaseFile> {
   return JSON.parse(await fs.readFile(path.join(caseDir(account, id), "case.json"), "utf8"));
+}
+
+async function writeOcr(account: string, id: string, ocr: CaseFile["ocr"]) {
+  const f = await readCaseFile(account, id);
+  await fs.writeFile(path.join(caseDir(account, id), "case.json"), JSON.stringify({ ...f, ocr }, null, 2));
 }
 
 async function writeEmbeddings(account: string, id: string, e: CaseFile["embeddings"]) {
@@ -60,7 +73,7 @@ export async function runPipeline(c: KycCase, account: string): Promise<KycCase>
   }
 
   // 模型與原生模組（onnxruntime-node、sharp）只在真正要驗證時才載入
-  const [{ consistency, parseBack, parseFront }, { cosine, detectFaces, embedFace, largest, SFACE_SAME }, { checkLiveness }, { ffmpegAvailable }, { readText }, { decodeImage, missingModels }] =
+  const [{ consistency, findTwIds, maskOcr, parseBack, parseFront }, { cosine, detectFaces, embedFace, largest, SFACE_SAME }, { checkLiveness }, { ffmpegAvailable }, { readText }, { decodeImage, missingModels, warp }] =
     await Promise.all([import("./kyc-ml/fields"), import("./kyc-ml/face"), import("./kyc-ml/liveness"), import("./kyc-ml/media"), import("./kyc-ml/ocr"), import("./kyc-ml/runtime")]);
 
   const missing = missingModels();
@@ -75,7 +88,23 @@ export async function runPipeline(c: KycCase, account: string): Promise<KycCase>
   // 1. 證件 OCR
   const frontImg = await decodeImage(await fs.readFile(path.join(dir, c.files.front)));
   const backImg = await decodeImage(await fs.readFile(path.join(dir, c.files.back)));
-  const f: IdFields = { ...parseFront(await readText(frontImg)), ...parseBack(await readText(backImg)) };
+  const frontLines = await readText(frontImg);
+  const backLines = await readText(backImg);
+  const f: IdFields = { ...parseFront(frontLines), ...parseBack(backLines) };
+  let zoomLines: typeof frontLines = [];
+  if (!f.idNumber) {
+    // 統一編號在正面右下角，常被反光或浮水印干擾：裁出右下區域放大兩倍再讀一次
+    const x0 = Math.round(frontImg.width * 0.5), y0 = Math.round(frontImg.height * 0.55);
+    const w = frontImg.width - x0, h = frontImg.height - y0;
+    zoomLines = await readText(warp(frontImg, w * 2, h * 2, [0.5, 0, x0, 0, 0.5, y0]));
+    const found = [...new Set(zoomLines.flatMap((l) => findTwIds(l.text)).concat(findTwIds(zoomLines.map((l) => l.text).join(""))))];
+    if (found.length === 1) {
+      f.idNumber = found[0];
+      f.docType = /[12]/.test(found[0][1]) ? "national_id" : "resident_permit";
+    }
+  }
+  // 診斷用：OCR 原始文字（統一編號與長數字已遮罩）存進案件檔，保存期限到期時一併清除
+  await writeOcr(account, c.id, { front: maskOcr(frontLines), back: maskOcr(backLines), zoom: zoomLines.length ? maskOcr(zoomLines) : undefined });
   const cons = consistency(f);
   checks.ocr = { ok: !!(f.idNumber && f.name && f.birthday), detail: f.idNumber ? `擷取到姓名、出生日期與統一編號（${f.idNumber.slice(0, 1)}*******${f.idNumber.slice(-2)}）` : "無法擷取統一編號" };
   checks.fields = { ok: cons.ok, detail: cons.ok ? "檢查碼、性別與日期合理" : cons.issues.join("；") };
@@ -94,10 +123,7 @@ export async function runPipeline(c: KycCase, account: string): Promise<KycCase>
     detail: `影片 ${live.frames} 格、${Math.round(live.faceRatio * 100)}% 有臉；${okActions}/${live.actions.length} 個動作在影片中確認` + (live.actions.some((a) => !a.ok) ? `（未確認：${live.actions.filter((a) => !a.ok).map((a) => a.action).join("、")}）` : ""),
   };
   checks.singleFace = { ok: live.multiFaceRatio < 0.1, detail: live.multiFaceRatio < 0.1 ? "影片中只有一張臉" : `${Math.round(live.multiFaceRatio * 100)}% 的影格出現多張臉` };
-  checks.speech = {
-    ok: live.speech?.match === "exact",
-    detail: !live.speech ? "沒有念數字的動作" : live.speech.match === "exact" ? "念出的數字正確" : live.speech.match === "partial" ? `辨識結果只部分相符（${live.speech.digits || "無"}）` : "聽不到或數字不符",
-  };
+  const speechPartial = live.speech?.match === "partial";
 
   // 4. 人臉比對
   const videoEmb = live.best ? await embedFace(live.best.img, live.best.face) : null;
@@ -105,6 +131,18 @@ export async function runPipeline(c: KycCase, account: string): Promise<KycCase>
   checks.faceMatch = {
     ok: sim !== null && sim >= AUTO_FACE,
     detail: sim === null ? "無法比對（證件或影片找不到臉）" : sim >= AUTO_FACE ? "影片與證件照為同一人" : sim >= SFACE_SAME ? "相似度偏低，需人工確認" : "影片與證件照不像同一人",
+  };
+  // 念數字：語音模型會聽錯個別數字。4 碼中錯 1 碼時，其餘活體動作全部確認、單一人臉且人臉比對通過，才視為通過
+  const partialOk = SPEECH_PARTIAL_OK && speechPartial && checks.liveness.ok && checks.singleFace.ok && checks.faceMatch.ok;
+  checks.speech = {
+    ok: live.speech?.match === "exact" || partialOk,
+    detail: !live.speech
+      ? "沒有念數字的動作"
+      : live.speech.match === "exact"
+        ? "念出的數字正確"
+        : speechPartial
+          ? `辨識結果只部分相符（${live.speech.digits || "無"}）${partialOk ? "；其餘活體動作與人臉比對皆通過，接受" : ""}`
+          : "聽不到或數字不符",
   };
 
   // 5. 同一證號是否已屬於其他身分

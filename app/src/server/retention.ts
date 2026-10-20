@@ -50,6 +50,7 @@ async function purgeCase(account: string, c: KycCase) {
     const j = JSON.parse(raw);
     delete j.embeddings;
     delete j.code;
+    delete j.ocr;
     await fs.writeFile(cj, JSON.stringify(j, null, 2));
   }
   return removed;

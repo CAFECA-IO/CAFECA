@@ -170,6 +170,8 @@ export type EntityRecord = {
     checks: Record<string, { ok: boolean; detail: string }>;
     letter?: string;
     review?: { by: string; at: number; decision: "approved" | "rejected"; note?: string };
+  /** 核准後由複核人員更正欄位的紀錄（只記欄位名稱，不記內容） */
+  corrections?: { by: string; at: number; fields: string[]; note: string }[];
     result?: { txHash?: string; error?: string };
   };
   /** 已通過的綁定（統編與登記資料快照）；每日監控以這份快照比對 */
@@ -221,6 +223,8 @@ export type KycCase = {
   scores?: Record<string, number | string | boolean | null>;
   decidedBy?: "auto" | "reviewer" | "prototype";
   review?: { by: string; at: number; decision: "approved" | "rejected"; note?: string };
+  /** 核准後由複核人員更正欄位的紀錄（只記欄位名稱，不記內容） */
+  corrections?: { by: string; at: number; fields: string[]; note: string }[];
   /** 恢復案件：新裝置金鑰，核准後由平台備援金鑰發起 initiateRecovery */
   recovery?: { qx: string; qy: string; rpIdHash: string };
   /** 核准後的鏈上結果 */

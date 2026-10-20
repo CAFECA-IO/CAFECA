@@ -62,8 +62,42 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /api/admin/kyc?status=review` | 案件列表，最多 100 筆。`status`：`review`（預設）、`pending`、`processing`、`approved`、`rejected`、`all` |
-| `POST /api/admin/kyc` | `{ account, caseId, decision: "approved" \| "rejected", note? }`：只能處理 `review` 狀態的案件，否則回 409。核准後立即簽發鏈上證明 |
-| `GET /api/admin/kyc/file?account=&case=&kind=front\|back\|face` | 檢視浮水印版證件或臉部影片；每次檢視都寫入稽核紀錄 |
+| `POST /api/admin/kyc` | 核准或退件（見下） |
+| `POST /api/admin/kyc` `{ action: "correct", … }` | 更正已核准開戶案件的欄位（見下） |
+| `GET /api/admin/kyc/file?account=&case=&kind=front\|back\|face` | 檢視浮水印版證件或臉部影片 |
+| `GET /api/admin/kyc/file?account=&case=&kind=ocr` | OCR 原始文字：`{ ocr: { front, back, zoom? } \| null }`。統一編號與長數字已遮罩；`zoom` 是讀不到統一編號時右下角放大重讀的結果 |
+
+每次檢視檔案或 OCR 文字都寫入稽核紀錄。
+
+### 核准或退件
+
+```json
+{
+  "account": "0x…", "caseId": "…", "decision": "approved | rejected", "note": "…",
+  "fields": { "name": "陳大文", "birthday": "1990-01-01", "issueDate": "2019-05-01", "idNumber": "A123456789" }
+}
+```
+
+- 只能處理 `review` 狀態的案件，否則回 409。核准後立即簽發鏈上證明。
+- **核准開戶案件時必須確認欄位**：`fields` 沒填的項目沿用 OCR 擷取值。
+  - 姓名與出生日期最後必須有值。
+  - OCR 沒擷取到統一編號時，`idNumber` 必填，否則回 400。
+  - `idNumber` 要通過檢查碼。伺服器只保存 HMAC，原文不保存、不寫入稽核紀錄。
+  - 性別、證件類型、國籍由統一編號推得。
+  - 統一編號已綁定其他有效身分時回 409。
+- 恢復案件不需要 `fields`。
+- 稽核紀錄的 `fieldsConfirmed` 只列出與 OCR 不同的欄位名稱，不記內容。
+
+### 更正已核准的欄位
+
+```json
+{ "action": "correct", "account": "0x…", "caseId": "…", "fields": { "name": "陳大雯" }, "note": "OCR 誤讀，依證件更正" }
+```
+
+- 只限已核准的開戶案件；`note` 必填；欄位沒有變更回 400。
+- 驗證規則同上；更正統一編號時同步更新身分的 HMAC。
+- 更正紀錄存在案件的 `corrections`，稽核紀錄為 `kyc.fields.correct`（只記欄位名稱）。
+- 之後簽發的 KYC Credential 使用更正後的資料；鏈上證明不需重簽（`claimsRoot` 來自證據雜湊，不含欄位）。
 
 ## 法人複核 — `kyc`
 
