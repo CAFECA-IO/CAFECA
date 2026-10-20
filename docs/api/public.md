@@ -1,6 +1,6 @@
 # 對外公開 API
 
-給串接 CAFECA 的網站、依賴方（交易所等）與商家使用。共通規則見 [overview.md](overview.md)。
+給串接 CAFECA 的網站、依賴方（交易所等）與商家使用。共通規則見 [overview.md](overview.md)；完整串接流程（授權、用戶資訊、KYC 資料）見[串接指南](../integration.md)。
 
 登入（`/dl/auth`）與簽章請求（`/dl/sign`）是使用者在瀏覽器開啟的**頁面**，不是 API。協定、SDK（`/sdk/cafeca-connect.js`）與驗證範例見根目錄 [README](../../README.md)〈Sign in with CAFECA〉第 1–8 節。
 
