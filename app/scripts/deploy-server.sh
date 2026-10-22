@@ -74,7 +74,17 @@ fi
 
 # ───────────────────────── 3. 相依套件與模型 ─────────────────────────
 step "npm install（postinstall 會下載 MediaPipe 與 KYC 模型，約 140 MB）"
-node -e 'const [a]=process.versions.node.split(".");if(+a<20){console.error("需要 Node.js 20 以上，目前 "+process.version);process.exit(1)}'
+want_node="$(tr -d ' \n' < "$APP_DIR/../.nvmrc" 2>/dev/null || echo 24.22.1)"
+if [ "$(node -v 2>/dev/null)" != "v$want_node" ]; then
+  # 有 nvm 時自動安裝並切換到指定版本
+  if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+    # shellcheck disable=SC1091
+    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+    nvm install "$want_node" >/dev/null && nvm use "$want_node" >/dev/null
+  fi
+  [ "$(node -v 2>/dev/null)" = "v$want_node" ] || die "需要 Node.js $want_node（.nvmrc），目前 $(node -v 2>/dev/null || echo 未安裝)。請執行 nvm install $want_node && nvm alias default $want_node"
+fi
+ok "Node.js $(node -v)"
 npm install
 npm run fetch-models
 missing=0

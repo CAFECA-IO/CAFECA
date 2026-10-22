@@ -4,6 +4,8 @@
 
 ## 啟動
 
+需要 **Node.js 24.22.1**（repo 根目錄的 `.nvmrc`／`.node-version`；用 nvm 時在 repo 內執行 `nvm install && nvm use`）。
+
 ```bash
 npm install          # 會一併下載 MediaPipe 臉部模型到 public/mediapipe（npm run fetch-models 可重跑）
 
@@ -37,6 +39,7 @@ PUBLIC_ORIGIN=https://cafeca.io npm run deploy:server
 
 依序完成：
 
+0. 確認 Node.js 為 `.nvmrc` 指定的 24.22.1（有 nvm 時自動安裝並切換，否則停止）
 1. 安裝 `ffmpeg`（apt／dnf／yum／apk／brew，需要 sudo）
 2. `git pull --ff-only`
 3. `npm install`（含 MediaPipe 與 KYC 模型，約 140 MB，需能連 huggingface.co）

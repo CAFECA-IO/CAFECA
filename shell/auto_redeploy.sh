@@ -16,6 +16,7 @@
 #   7. 排程（身分同步、法人監控、每日維護）    重新寫入 crontab
 #   8. paymaster 押金、營運錢包 BOLT 餘額      無法自動修復（涉及資金），發出警示
 #   9. 磁碟空間                               清除 .next/cache；仍不足時發出警示
+#  10. Node.js 版本與 .nvmrc（24.22.1）一致     有 nvm 時自動安裝並切換；否則發出警示
 #
 # 不會做的事：git pull、部署或變更合約、移動資金、修改 .env.local 的金鑰。要更新程式請用 npm run deploy:server。
 #
@@ -110,6 +111,18 @@ if command -v flock >/dev/null && ! flock -n 9; then
 fi
 
 cd "$APP_DIR" || { echo "找不到 $APP_DIR" >&2; exit 1; }
+
+# Node.js 版本：cron 的 PATH 很精簡，有 nvm 就載入並切換到 .nvmrc 指定的版本（修復模式下缺少時自動安裝）
+WANT_NODE="$(tr -d ' \n' < "$ROOT/.nvmrc" 2>/dev/null || true)"
+if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1
+  if [ -n "$WANT_NODE" ] && ! nvm use "$WANT_NODE" >/dev/null 2>&1 && [ "$MODE" = "repair" ]; then
+    log "→ 安裝 Node.js $WANT_NODE（nvm）"
+    nvm install "$WANT_NODE" >/dev/null 2>&1 && nvm use "$WANT_NODE" >/dev/null 2>&1
+  fi
+fi
+command -v node >/dev/null || { alert "找不到 node（cron 的 PATH 沒有 Node.js；請安裝 nvm 或把 node 加進 PATH）"; exit 1; }
 [ -f "$ENV_FILE" ] || { alert "找不到 app/.env.local，無法檢查（第一次部署請執行 npm run deploy:server）"; exit 1; }
 
 # ───────────────────────── 檢查 ─────────────────────────
@@ -121,7 +134,7 @@ DEP_FILE="deployments/boltchain-testnet.local.json"
 [ -f "$DEP_FILE" ] || DEP_FILE="deployments/boltchain-testnet.json"
 
 APP_OK=1 PAGES_OK=1 RPC_OK=1 INDEX_OK=1 PUBLIC_OK=1 MODELS_OK=1 FFMPEG_OK=1 CRON_OK=1 DISK_OK=1
-FUNDS_MSG=""
+FUNDS_MSG="" NODE_MSG=""
 
 check_app() {
   local cfgj
@@ -226,11 +239,18 @@ check_disk() {
   if [ "${pct:-0}" -lt "$DISK_MAX_PCT" ]; then DISK_OK=1; ok "磁碟使用率 ${pct}%"; else DISK_OK=0; bad "磁碟使用率 ${pct}%（上限 ${DISK_MAX_PCT}%）"; fi
 }
 
+check_node() {
+  [ -n "$WANT_NODE" ] || return
+  if [ "$(node -v)" = "v$WANT_NODE" ]; then ok "Node.js $(node -v)"
+  else bad "Node.js 版本 $(node -v)，應為 v$WANT_NODE（.nvmrc）：請執行 nvm install $WANT_NODE 後重新部署"; NODE_MSG="$(node -v)"; fi
+}
+
 run_checks() {
+  NODE_MSG=""
   APP_OK=1 PAGES_OK=1 RPC_OK=1 INDEX_OK=1 PUBLIC_OK=1 MODELS_OK=1 FFMPEG_OK=1 CRON_OK=1 DISK_OK=1
   check_app
   if [ "$APP_OK" = 1 ]; then check_pages; check_rpc; [ "$RPC_OK" = 1 ] && check_index; check_public; fi
-  check_kyc; check_cron; check_funds; check_disk
+  check_kyc; check_cron; check_funds; check_disk; check_node
 }
 
 healthy() { [ "$APP_OK$PAGES_OK$RPC_OK$INDEX_OK$PUBLIC_OK$MODELS_OK$FFMPEG_OK$CRON_OK$DISK_OK" = "111111111" ]; }
@@ -322,6 +342,8 @@ record_repair() { node -e 'const fs=require("fs"),f=process.argv[1];let a=[];try
 # ───────────────────────── 主流程 ─────────────────────────
 log "── 檢查開始（$MODE）"
 run_checks
+# 版本不符不算服務異常（服務仍可運作），只提醒；重新建置會用到目前的 node，所以提醒要先處理
+[ -n "$NODE_MSG" ] && alert_once node 21600 "Node.js 版本是 $NODE_MSG，應為 v$WANT_NODE（.nvmrc）。請在伺服器執行 nvm install $WANT_NODE && nvm alias default $WANT_NODE，再 npm run deploy:server"
 if funds_low; then alert_once funds 21600 "餘額偏低：$(grep '^LOW' <<<"$FUNDS_MSG" | sed 's/^LOW //' | paste -sd '；' -)。請補充（自動修復不會移動資金）"; fi
 
 if healthy; then
