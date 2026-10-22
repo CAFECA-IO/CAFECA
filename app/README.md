@@ -51,6 +51,24 @@ PUBLIC_ORIGIN=https://cafeca.io npm run deploy:server
 
 第一次部署（還沒有 `.env.local`）請先照上面「啟動」執行 `npm run deploy` 產生金鑰並部署合約。
 
+**健康檢查與自動修復**：在 repo 根目錄執行 `shell/auto_redeploy.sh`。系統正常就不處理；異常時依序嘗試修復：
+
+| 檢查 | 自動修復 |
+| --- | --- |
+| 錢包服務回應、設定檔含合約位址、`/start`／`/wallet`／`/admin` 可開啟 | 重新啟動 → 重新建置後啟動 → `npm ci`、建置後啟動（建置不存在或比程式碼舊時直接重新建置） |
+| 事件索引 5 分鐘沒有進度且落後超過 `INDEX_MAX_LAG` 區塊 | 重新啟動 → 索引資料移到 `data/index.broken-<時間>` 重新同步 |
+| 排程（身分同步、法人監控、每日維護） | 重新寫入 crontab |
+| KYC 模型 | `npm run fetch-models` |
+| 磁碟使用率超過 `DISK_MAX_PCT` | 清除 `.next/cache` |
+| 對外網址 | 反向代理（nginx／caddy／apache）沒有執行時啟動它 |
+| 鏈 RPC、ffmpeg、paymaster 押金與營運錢包餘額 | 不自動處理，只發出警示 |
+
+- `shell/auto_redeploy.sh --check` 只檢查不修復；`--install-cron` 每 5 分鐘自動執行，`--uninstall-cron` 移除。
+- 設定 `ALERT_WEBHOOK`（Slack／Google Chat／Discord 相容）就會在修復或需要人工處理時通知；同一則持續異常 1 小時內只通知一次、餘額偏低 6 小時一次。
+- 一小時內自動修復超過 `MAX_REPAIRS_PER_HOUR`（預設 3）次就停止修復，只發警示，避免反覆重啟。
+- 不會 `git pull`、部署或變更合約、移動資金、修改金鑰；要套用新程式仍用 `npm run deploy:server`。
+- 紀錄在 `app/data/auto-redeploy/`。其他選項（`PORT`、`PM2_NAME`、`SYSTEMD_UNIT`、門檻值）見腳本開頭說明。
+
 ## 功能對照
 
 | 頁面 | 功能 | 規格章節 |

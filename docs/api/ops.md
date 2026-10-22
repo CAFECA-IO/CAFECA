@@ -1,6 +1,6 @@
 # 排程與維運 API
 
-由 `deploy:server` 建立的 crontab 或監控系統呼叫。共通規則見 [overview.md](overview.md)。
+由 `deploy:server` 建立的 crontab 或監控系統呼叫。`shell/auto_redeploy.sh` 會用這些端點檢查系統，異常時嘗試自動修復（見 [app/README.md](../../app/README.md)〈伺服器部署〉）。共通規則見 [overview.md](overview.md)。
 
 | 端點 | 方法 | 驗證 | 建議頻率 | 說明 |
 |---|---|---|---|---|
