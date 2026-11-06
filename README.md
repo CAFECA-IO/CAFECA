@@ -10,6 +10,18 @@
 
 快速開始請見各目錄的 README。
 
+## 系統原理
+
+![CAFECA 系統原理：使用者以裝置 Passkey、CAFECA 卡與平台備援金鑰控制鏈上身分帳戶；CAFECA 錢包代送交易並簽發實名證明；第三方網站以公開 RPC 自行驗證](docs/images/architecture.svg)
+
+- **金鑰在使用者手上**：身分帳戶由裝置 Passkey（日常額度）、CAFECA 卡（大額、放寬權限）與平台備援金鑰（只能發起有時間鎖的恢復）共同控制，CAFECA 伺服器無法動用使用者資產。
+- **CAFECA 錢包代送交易、簽發實名證明**：Bundler 把使用者簽好的操作送上鏈、Paymaster 依實名等級贊助 gas；KYC 後台在自己的伺服器驗證證件與臉部影像，通過後在 IdentityRegistry 寫入實名證明。
+- **第三方網站不必信任 CAFECA**：登入簽章綁定網站網域，網站後端用公開 RPC 呼叫 `isValidSignature` 與 `statusOf` 就能驗證身分與實名等級。
+
+### 身分生命週期
+
+![CAFECA 身分生命週期：建立身分、實名驗證、啟用備援金鑰、綁定 CAFECA 卡、遺失裝置恢復](docs/images/lifecycle.svg)
+
 ---
 
 ## Sign in with CAFECA：第三方網站登入串接
@@ -17,6 +29,8 @@
 任何網站都可以讓使用者以 CAFECA 身分登入，**不需要向 CAFECA 註冊、申請 client ID 或 API key**，也不需要 CAFECA 伺服器參與驗證。
 
 ### 原理
+
+![Sign in with CAFECA 運作流程：網站後端發 nonce，使用者在 CAFECA 錢包確認網域並以 Passkey 簽署，網站後端以公開 RPC 驗證後建立自己的 session](docs/images/signin-flow.svg)
 
 1. 你的後端產生一次性 `nonce`，前端把「登入請求」交給 CAFECA 錢包（彈出視窗、整頁導向或 QR code）。
 2. 錢包顯示你的**網域**，使用者確認後以 Passkey 簽署一則 EIP-712 `SignIn` 訊息。訊息內含你的網域、nonce、有效時間與使用者同意提供的資料。
